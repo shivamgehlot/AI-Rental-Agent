@@ -1,4 +1,4 @@
-"""Authentication and authorization utilities for RideSwift."""
+"""Authentication and authorization for RideSwift backend."""
 
 from __future__ import annotations
 
@@ -8,10 +8,9 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -19,22 +18,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import Customer
-from schemas import CustomerResponse
+from schemas import CustomerCreate, CustomerResponse, LoginRequest, TokenResponse
+
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-bearer_scheme = HTTPBearer(auto_error=True)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class AuthSettings(BaseSettings):
-    """JWT and auth configuration."""
+    """Auth settings loaded from environment."""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-    JWT_SECRET_KEY: str = "dev_access_secret_change_me"
-    JWT_REFRESH_SECRET_KEY: str = "dev_refresh_secret_change_me"
-    JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-    REFRESH_TOKEN_EXPIRE_MINUTES: int = 43200
+    SECRET_KEY: str = "rideswift-super-secret-key-change-in-prod"
 
 
 @lru_cache(maxsize=1)
@@ -43,170 +42,134 @@ def get_auth_settings() -> AuthSettings:
     return AuthSettings()
 
 
-class RegisterRequest(BaseModel):
-    """Incoming register request body."""
-
-    full_name: str = Field(min_length=1, max_length=200)
-    email: EmailStr
-    phone: str | None = Field(default=None, max_length=30)
-    password: str = Field(min_length=8, max_length=128)
+def hash_password(plain: str) -> str:
+    """Hash plaintext password using bcrypt."""
+    return pwd_context.hash(plain)
 
 
-class LoginRequest(BaseModel):
-    """Incoming login request body."""
-
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+def verify_password(plain: str, hashed: str) -> bool:
+    """Verify plaintext password against stored hash."""
+    return pwd_context.verify(plain, hashed)
 
 
-class TokenResponse(BaseModel):
-    """Auth token response payload."""
-
-    model_config = ConfigDict(from_attributes=True)
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
-def get_password_hash(password: str) -> str:
-    """Hash a plaintext password."""
-    return pwd_context.hash(password)
-
-
-def verify_password(plain_password: str, password_hash: str) -> bool:
-    """Verify plaintext password against its hash."""
-    return pwd_context.verify(plain_password, password_hash)
-
-
-def _create_token(
-    customer_id: UUID,
-    secret_key: str,
-    algorithm: str,
-    expires_minutes: int,
-    token_type: str,
-) -> str:
-    """Create a signed JWT."""
-    expires_at = datetime.now(UTC) + timedelta(minutes=expires_minutes)
-    payload = {"sub": str(customer_id), "exp": expires_at, "type": token_type}
-    return jwt.encode(payload, secret_key, algorithm=algorithm)
-
-
-def create_access_token(customer_id: UUID) -> str:
-    """Create an access token."""
+def create_access_token(data: dict) -> str:
+    """Create access JWT with 30-minute expiry."""
     settings = get_auth_settings()
-    return _create_token(
-        customer_id=customer_id,
-        secret_key=settings.JWT_SECRET_KEY,
-        algorithm=settings.JWT_ALGORITHM,
-        expires_minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES,
-        token_type="access",
+    to_encode = data.copy()
+    to_encode.update(
+        {
+            "type": "access",
+            "exp": datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        }
     )
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_refresh_token(customer_id: UUID) -> str:
-    """Create a refresh token."""
+def create_refresh_token(data: dict) -> str:
+    """Create refresh JWT with 7-day expiry."""
     settings = get_auth_settings()
-    return _create_token(
-        customer_id=customer_id,
-        secret_key=settings.JWT_REFRESH_SECRET_KEY,
-        algorithm=settings.JWT_ALGORITHM,
-        expires_minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES,
-        token_type="refresh",
+    to_encode = data.copy()
+    to_encode.update(
+        {
+            "type": "refresh",
+            "exp": datetime.now(UTC) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+        }
     )
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
-@router.post("/register", response_model=CustomerResponse, status_code=status.HTTP_201_CREATED)
-async def register_customer(
-    payload: RegisterRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> Customer:
-    """Register a new customer account with hashed password."""
-    existing_customer_result = await db.execute(select(Customer).where(Customer.email == payload.email))
-    existing_customer = existing_customer_result.scalar_one_or_none()
-    if existing_customer is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Customer with this email already exists",
-        )
-
-    customer = Customer(
-        full_name=payload.full_name,
-        email=payload.email,
-        phone=payload.phone,
-        password_hash=get_password_hash(payload.password),
-    )
-    db.add(customer)
+def verify_token(token: str) -> dict:
+    """Decode and validate JWT payload."""
+    settings = get_auth_settings()
     try:
-        await db.commit()
-        await db.refresh(customer)
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Customer with this email already exists",
-        ) from exc
-    except SQLAlchemyError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to register customer",
-        ) from exc
-    return customer
-
-
-@router.post("/login", response_model=TokenResponse)
-async def login_customer(
-    payload: LoginRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> TokenResponse:
-    """Authenticate a customer and issue tokens."""
-    result = await db.execute(select(Customer).where(Customer.email == payload.email))
-    customer = result.scalar_one_or_none()
-    if customer is None or customer.password_hash is None:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
-
-    if not verify_password(payload.password, customer.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
-
-    return TokenResponse(
-        access_token=create_access_token(customer.id),
-        refresh_token=create_refresh_token(customer.id),
-    )
+            detail="Invalid or expired token",
+        ) from exc
+    return payload
 
 
-async def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
+async def get_current_customer(
+    token: Annotated[str, Depends(oauth2_scheme)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Customer:
-    """Decode bearer token and return the authenticated customer."""
-    settings = get_auth_settings()
-    token = credentials.credentials
+    """Resolve currently authenticated customer from bearer token."""
+    payload = verify_token(token)
+    subject = payload.get("sub")
+    token_type = payload.get("type")
+    if not subject or token_type != "access":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        token_type = payload.get("type")
-        subject = payload.get("sub")
-        if token_type != "access" or not subject:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token",
-            )
         customer_id = UUID(subject)
-    except (JWTError, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject") from exc
 
     customer = await db.get(Customer, customer_id)
     if customer is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Customer not found")
     return customer
+
+
+# Backward-compatible dependency name used by existing routers.
+get_current_user = get_current_customer
+
+
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+async def register(
+    payload: CustomerCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TokenResponse:
+    """Create customer account and return access/refresh tokens."""
+    existing = await db.execute(select(Customer).where(Customer.email == payload.email))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+
+    customer = Customer(
+        name=payload.name,
+        email=payload.email,
+        phone=payload.phone,
+        hashed_password=hash_password(payload.password),
+    )
+    db.add(customer)
+    try:
+        await db.flush()
+        await db.refresh(customer)
+    except IntegrityError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered") from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to register") from exc
+
+    subject = {"sub": str(customer.id)}
+    return TokenResponse(
+        access_token=create_access_token(subject),
+        refresh_token=create_refresh_token(subject),
+        token_type="bearer",
+    )
+
+
+@router.post("/login", response_model=TokenResponse)
+async def login(
+    payload: LoginRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TokenResponse:
+    """Authenticate customer and issue JWT tokens."""
+    result = await db.execute(select(Customer).where(Customer.email == payload.email))
+    customer = result.scalar_one_or_none()
+    if customer is None or not verify_password(payload.password, customer.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    subject = {"sub": str(customer.id)}
+    return TokenResponse(
+        access_token=create_access_token(subject),
+        refresh_token=create_refresh_token(subject),
+        token_type="bearer",
+    )
+
+
+@router.get("/me", response_model=CustomerResponse)
+async def me(current_customer: Annotated[Customer, Depends(get_current_customer)]) -> Customer:
+    """Return current authenticated customer profile."""
+    return current_customer

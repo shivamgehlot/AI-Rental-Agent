@@ -60,7 +60,7 @@ async def _fetch_customer_bookings(customer_id: UUID) -> list[dict[str, Any]]:
     settings = get_settings()
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.get(
-            f"{settings.BACKEND_API_URL}/customers/{customer_id}/bookings",
+            f"{settings.BACKEND_API_URL}/api/customers/{customer_id}/bookings",
             headers=_headers(),
         )
         response.raise_for_status()
@@ -73,7 +73,7 @@ async def _fetch_customer(customer_id: UUID) -> dict[str, Any]:
     settings = get_settings()
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.get(
-            f"{settings.BACKEND_API_URL}/customers/{customer_id}",
+            f"{settings.BACKEND_API_URL}/api/customers/{customer_id}",
             headers=_headers(),
         )
         response.raise_for_status()
@@ -86,7 +86,7 @@ async def _fetch_vehicle(vehicle_id: UUID) -> dict[str, Any]:
     settings = get_settings()
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.get(
-            f"{settings.BACKEND_API_URL}/vehicles/{vehicle_id}",
+            f"{settings.BACKEND_API_URL}/api/vehicles/{vehicle_id}",
             headers=_headers(),
         )
         response.raise_for_status()
@@ -102,7 +102,7 @@ async def _fetch_available_vehicles(vehicle_type: str | None = None) -> list[dic
         params["type"] = vehicle_type
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.get(
-            f"{settings.BACKEND_API_URL}/vehicles",
+            f"{settings.BACKEND_API_URL}/api/vehicles/",
             params=params,
             headers=_headers(),
         )

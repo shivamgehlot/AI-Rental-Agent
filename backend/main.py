@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from auth import router as auth_router
+from database import init_db
 from metrics import setup_metrics
 from routers.bookings import router as bookings_router
 from routers.customers import router as customers_router
@@ -47,6 +48,12 @@ app.include_router(customers_router)
 app.include_router(auth_router)
 app.include_router(bookings_router)
 app.include_router(insurance_router)
+
+
+@app.on_event("startup")
+async def startup_init_db() -> None:
+    """Initialize database schema on service startup."""
+    await init_db()
 
 
 @app.get("/health")

@@ -2,12 +2,15 @@ version: "3.9"
 services:
   postgres:
     image: postgres:16
+    command: postgres
     environment:
       POSTGRES_DB: rideswift
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: secret
     ports: ["5432:5432"]
-    volumes: ["pgdata:/var/lib/postgresql/data"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
 
   redis:
     image: redis:7-alpine
@@ -31,10 +34,14 @@ services:
     ports: ["8000:8000"]
     environment:
       DATABASE_URL: postgresql+asyncpg://admin:secret@postgres:5432/rideswift
-      JWT_SECRET_KEY: dev_access_secret_change_me
-      JWT_REFRESH_SECRET_KEY: dev_refresh_secret_change_me
       REDIS_URL: redis://redis:6379
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BROKER: kafka:9092
+      SECRET_KEY: rideswift-super-secret-key-change-in-prod
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: 587
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      OLLAMA_URL: http://ollama:11434
     depends_on: [postgres, redis, kafka]
 
   ai-agents:
@@ -44,6 +51,8 @@ services:
       BACKEND_API_URL: http://backend:8000
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: mistral
+      OLLAMA_URL: http://ollama:11434
+      BACKEND_URL: http://backend:8000
     depends_on: [backend, postgres, redis, ollama]
 
   rag-service:
@@ -85,7 +94,12 @@ services:
     image: ollama/ollama:latest
     ports: ["11434:11434"]
     volumes:
-      - ollama-data:/root/.ollama
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   prometheus:
     image: prom/prometheus:v2.54.1
@@ -113,4 +127,4 @@ volumes:
   grafana-data:
   minio-data:
   chroma-data:
-  ollama-data:
+  ollama_data:

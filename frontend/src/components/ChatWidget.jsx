@@ -11,7 +11,7 @@ export default function ChatWidget({ customerId }) {
   const socket = useRef(null);
 
   useEffect(() => {
-    socket.current = io(process.env.REACT_APP_API_URL);
+    socket.current = io(import.meta.env.VITE_API_URL || "http://localhost:8000");
     socket.current.on("inventory_update", (data) => {
       setMessages(prev => [...prev, {
         from: "bot", text: `🚗 Update: ${data.message}`
@@ -27,7 +27,8 @@ export default function ChatWidget({ customerId }) {
     setInput("");
     setLoading(true);
 
-    const res = await fetch(`${process.env.REACT_APP_API_URL}/agent/chat`, {
+    const apiBase = import.meta.env.VITE_API_URL || "http://localhost:8000";
+    const res = await fetch(`${apiBase}/agent/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: input, customer_id: customerId })

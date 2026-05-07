@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 
-const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
-const METABASE_EMBED_URL = process.env.REACT_APP_METABASE_EMBED_URL || "";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const METABASE_EMBED_URL = import.meta.env.VITE_METABASE_EMBED_URL || "";
 
 function getToken() {
   return localStorage.getItem("token") || "";

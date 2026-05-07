@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,17 +22,18 @@ class Vehicle(Base):
         primary_key=True,
         server_default=text("gen_random_uuid()"),
     )
-    type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    brand: Mapped[str] = mapped_column(String(100), nullable=False)
-    model: Mapped[str] = mapped_column(String(100), nullable=False)
-    plate_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
-    location: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    price_per_day: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True, default="available")
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    plate: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    brand: Mapped[str] = mapped_column(String(50), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'available'"))
+    location: Mapped[str] = mapped_column(String(100), nullable=False)
+    daily_rate: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    image_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP"),
+        server_default=text("now()"),
     )
 
     bookings: Mapped[list[Booking]] = relationship("Booking", back_populates="vehicle")
@@ -48,15 +49,16 @@ class Customer(Base):
         primary_key=True,
         server_default=text("gen_random_uuid()"),
     )
-    full_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
-    phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    loyalty_points: Mapped[int] = mapped_column(nullable=False, server_default=text("0"))
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    email: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(200), nullable=False)
+    preferences: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    loyalty_points: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP"),
+        server_default=text("now()"),
     )
 
     bookings: Mapped[list[Booking]] = relationship("Booking", back_populates="customer")
@@ -80,32 +82,27 @@ class Booking(Base):
         UUID(as_uuid=True),
         ForeignKey("customers.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     vehicle_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("vehicles.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
-    pickup_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
-    return_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
-    total_price: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True, default="pending")
+    pickup_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    return_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    actual_return_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'pending'"))
+    total_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    insurance_validated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP"),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=text("CURRENT_TIMESTAMP"),
+        server_default=text("now()"),
     )
 
-    customer: Mapped[Customer] = relationship("Customer", back_populates="bookings")
-    vehicle: Mapped[Vehicle] = relationship("Vehicle", back_populates="bookings")
+    customer: Mapped[Customer] = relationship("Customer", back_populates="bookings", lazy="selectin")
+    vehicle: Mapped[Vehicle] = relationship("Vehicle", back_populates="bookings", lazy="selectin")
 
 
 class InsuranceDocument(Base):
@@ -122,14 +119,14 @@ class InsuranceDocument(Base):
         UUID(as_uuid=True),
         ForeignKey("customers.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
-    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    file_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    filename: Mapped[str] = mapped_column(String(200), nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    chroma_collection: Mapped[str] = mapped_column(String(100), nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP"),
+        server_default=text("now()"),
     )
 
     customer: Mapped[Customer] = relationship("Customer", back_populates="insurance_documents")

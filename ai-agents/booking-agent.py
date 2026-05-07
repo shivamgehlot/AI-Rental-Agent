@@ -10,8 +10,9 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from langchain.agents import AgentType, initialize_agent
 from langchain_community.chat_models import ChatOllama
-from langchain_core.pydantic_v1 import BaseModel, Field
+from langchain_core.pydantic_v1 import BaseModel as LCBaseModel, Field as LCField
 from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from personalization import get_customer_preferences, recommend_vehicles
@@ -41,14 +42,14 @@ def _headers() -> dict[str, str]:
     return {}
 
 
-class AvailabilityInput(BaseModel):
+class AvailabilityInput(LCBaseModel):
     """Input for availability checks."""
 
-    vehicle_type: str | None = Field(default=None)
-    location: str | None = Field(default=None)
+    vehicle_type: str | None = LCField(default=None)
+    location: str | None = LCField(default=None)
 
 
-class CreateBookingInput(BaseModel):
+class CreateBookingInput(LCBaseModel):
     """Input for booking creation."""
 
     customer_id: str
@@ -59,7 +60,7 @@ class CreateBookingInput(BaseModel):
     notes: str | None = None
 
 
-class ModifyBookingInput(BaseModel):
+class ModifyBookingInput(LCBaseModel):
     """Input for booking updates."""
 
     booking_id: str
@@ -70,13 +71,13 @@ class ModifyBookingInput(BaseModel):
     notes: str | None = None
 
 
-class PreferencesInput(BaseModel):
+class PreferencesInput(LCBaseModel):
     """Input for customer preference lookup."""
 
     customer_id: str
 
 
-class RecommendationsInput(BaseModel):
+class RecommendationsInput(LCBaseModel):
     """Input for personalized recommendations."""
 
     customer_id: str
@@ -94,7 +95,7 @@ async def check_availability(vehicle_type: str | None = None, location: str | No
 
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.get(
-            f"{settings.BACKEND_API_URL}/vehicles",
+            f"{settings.BACKEND_API_URL}/api/vehicles/",
             params=params,
             headers=_headers(),
         )
@@ -123,7 +124,7 @@ async def create_booking(
     }
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(
-            f"{settings.BACKEND_API_URL}/bookings",
+            f"{settings.BACKEND_API_URL}/api/bookings/",
             json=payload,
             headers=_headers(),
         )
@@ -155,7 +156,7 @@ async def modify_booking(
     }
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.patch(
-            f"{settings.BACKEND_API_URL}/bookings/{booking_id}",
+            f"{settings.BACKEND_API_URL}/api/bookings/{booking_id}",
             json=payload,
             headers=_headers(),
         )
@@ -222,11 +223,16 @@ app = FastAPI(title="RideSwift Booking Agent")
 class AgentQueryRequest(BaseModel):
     """Incoming query payload for agent execution."""
 
-    message: str = Field(min_length=1)
+    message: str | None = Field(default=None)
+    text: str | None = Field(default=None)
 
 
 @app.post("/agent/query")
+@app.post("/agent/chat")
 async def agent_query(payload: AgentQueryRequest) -> dict[str, Any]:
     """Run booking agent on incoming prompt."""
-    result = await agent.ainvoke({"input": payload.message})
+    prompt = payload.message or payload.text
+    if not prompt:
+        raise HTTPException(status_code=422, detail="Either 'message' or 'text' is required")
+    result = await agent.ainvoke({"input": prompt})
     return {"result": result.get("output", result)}

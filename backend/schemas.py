@@ -1,8 +1,8 @@
-"""Pydantic schemas for RideSwift backend APIs."""
+"""Pydantic v2 schemas for RideSwift backend."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from uuid import UUID
@@ -11,171 +11,152 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class VehicleStatus(str, Enum):
-    """Valid vehicle status values."""
+    """Valid vehicle lifecycle states."""
 
     available = "available"
     rented = "rented"
     maintenance = "maintenance"
 
 
+class VehicleType(str, Enum):
+    """Supported vehicle categories."""
+
+    sedan = "sedan"
+    suv = "suv"
+    hatchback = "hatchback"
+    ev = "ev"
+    bike = "bike"
+
+
 class BookingStatus(str, Enum):
-    """Valid booking status values."""
+    """Valid booking states."""
 
     pending = "pending"
     confirmed = "confirmed"
-    cancelled = "cancelled"
+    active = "active"
     completed = "completed"
+    cancelled = "cancelled"
 
 
-class ORMBaseSchema(BaseModel):
-    """Base schema configured for ORM model serialization."""
+class VehicleBase(BaseModel):
+    """Base fields shared by vehicle schemas."""
 
-    model_config = ConfigDict(from_attributes=True)
-
-
-class VehicleCreate(BaseModel):
-    """Payload to create a vehicle."""
-
-    type: str = Field(min_length=1, max_length=50)
-    brand: str = Field(min_length=1, max_length=100)
-    model: str = Field(min_length=1, max_length=100)
-    plate_number: str = Field(min_length=1, max_length=50)
-    location: str = Field(min_length=1, max_length=100)
-    price_per_day: Decimal = Field(gt=0)
+    type: VehicleType
+    plate: str = Field(min_length=1, max_length=20)
+    brand: str = Field(min_length=1, max_length=50)
+    model_name: str = Field(min_length=1, max_length=50)
     status: VehicleStatus = VehicleStatus.available
+    location: str = Field(min_length=1, max_length=100)
+    daily_rate: Decimal = Field(gt=0)
+    image_url: str | None = Field(default=None, max_length=300)
+
+
+class VehicleCreate(VehicleBase):
+    """Payload for creating a vehicle."""
 
 
 class VehicleUpdate(BaseModel):
-    """Payload to update a vehicle."""
+    """Payload for patching vehicle fields."""
 
-    type: str | None = Field(default=None, min_length=1, max_length=50)
-    brand: str | None = Field(default=None, min_length=1, max_length=100)
-    model: str | None = Field(default=None, min_length=1, max_length=100)
-    plate_number: str | None = Field(default=None, min_length=1, max_length=50)
-    location: str | None = Field(default=None, min_length=1, max_length=100)
-    price_per_day: Decimal | None = Field(default=None, gt=0)
+    type: VehicleType | None = None
+    plate: str | None = Field(default=None, min_length=1, max_length=20)
+    brand: str | None = Field(default=None, min_length=1, max_length=50)
+    model_name: str | None = Field(default=None, min_length=1, max_length=50)
     status: VehicleStatus | None = None
+    location: str | None = Field(default=None, min_length=1, max_length=100)
+    daily_rate: Decimal | None = Field(default=None, gt=0)
+    image_url: str | None = Field(default=None, max_length=300)
 
 
-class VehicleResponse(ORMBaseSchema):
-    """Vehicle API response model."""
+class VehicleResponse(VehicleBase):
+    """Vehicle response object."""
 
+    model_config = ConfigDict(from_attributes=True)
     id: UUID
-    type: str
-    brand: str
-    model: str
-    plate_number: str
-    location: str
-    price_per_day: Decimal
-    status: VehicleStatus
     created_at: datetime
 
 
-class CustomerCreate(BaseModel):
-    """Payload to create a customer."""
+class CustomerBase(BaseModel):
+    """Base customer fields."""
 
-    full_name: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=100)
     email: EmailStr
-    phone: str | None = Field(default=None, max_length=30)
-    password: str | None = Field(default=None, min_length=8, max_length=128)
+    phone: str = Field(min_length=1, max_length=20)
 
 
-class CustomerUpdate(BaseModel):
-    """Payload to update a customer."""
+class CustomerCreate(CustomerBase):
+    """Payload for creating customer accounts."""
 
-    full_name: str | None = Field(default=None, min_length=1, max_length=200)
-    email: EmailStr | None = None
-    phone: str | None = Field(default=None, max_length=30)
-    password: str | None = Field(default=None, min_length=8, max_length=128)
-    loyalty_points: int | None = Field(default=None, ge=0)
+    password: str = Field(min_length=8, max_length=128)
 
 
-class CustomerResponse(ORMBaseSchema):
-    """Customer API response model."""
+class CustomerResponse(CustomerBase):
+    """Customer response without password/hash fields."""
 
+    model_config = ConfigDict(from_attributes=True)
     id: UUID
-    full_name: str
-    email: EmailStr
-    phone: str | None
+    preferences: dict | None = None
     loyalty_points: int
     created_at: datetime
 
 
 class BookingCreate(BaseModel):
-    """Payload to create a booking."""
+    """Payload for creating a booking."""
 
     customer_id: UUID
     vehicle_id: UUID
     pickup_date: datetime
     return_date: datetime
-    total_price: Decimal = Field(gt=0)
-    status: BookingStatus = BookingStatus.pending
     notes: str | None = None
 
     @model_validator(mode="after")
-    def validate_booking_dates(self) -> BookingCreate:
-        """Ensure booking return date is after pickup date."""
+    def validate_dates(self) -> BookingCreate:
+        """Validate booking pickup/return dates."""
         if self.return_date <= self.pickup_date:
-            raise ValueError("return_date must be after pickup_date")
+            raise ValueError("return_date must be > pickup_date")
+        if self.pickup_date.date() < date.today():
+            raise ValueError("pickup_date must be >= today")
         return self
 
 
 class BookingUpdate(BaseModel):
-    """Payload to update a booking."""
+    """Payload for updating booking state/details."""
 
-    pickup_date: datetime | None = None
-    return_date: datetime | None = None
-    total_price: Decimal | None = Field(default=None, gt=0)
     status: BookingStatus | None = None
+    actual_return_date: datetime | None = None
     notes: str | None = None
-
-    @model_validator(mode="after")
-    def validate_booking_dates(self) -> BookingUpdate:
-        """Ensure booking return date is after pickup date when both are provided."""
-        if (
-            self.pickup_date is not None
-            and self.return_date is not None
-            and self.return_date <= self.pickup_date
-        ):
-            raise ValueError("return_date must be after pickup_date")
-        return self
+    insurance_validated: bool | None = None
 
 
-class BookingResponse(ORMBaseSchema):
-    """Booking API response model."""
+class BookingResponse(BaseModel):
+    """Booking response including nested customer and vehicle details."""
 
+    model_config = ConfigDict(from_attributes=True)
     id: UUID
     customer_id: UUID
     vehicle_id: UUID
     pickup_date: datetime
     return_date: datetime
-    total_price: Decimal
+    actual_return_date: datetime | None = None
     status: BookingStatus
-    notes: str | None
+    total_amount: Decimal
+    insurance_validated: bool
+    notes: str | None = None
     created_at: datetime
-    updated_at: datetime
+    vehicle: VehicleResponse
+    customer: CustomerResponse
 
 
-class InsuranceDocumentCreate(BaseModel):
-    """Payload to create an insurance document record."""
+class LoginRequest(BaseModel):
+    """Login request payload."""
 
-    customer_id: UUID
-    file_name: str = Field(min_length=1, max_length=255)
-    file_url: str = Field(min_length=1, max_length=512)
-
-
-class InsuranceDocumentUpdate(BaseModel):
-    """Payload to update an insurance document record."""
-
-    file_name: str | None = Field(default=None, min_length=1, max_length=255)
-    file_url: str | None = Field(default=None, min_length=1, max_length=512)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
 
 
-class InsuranceDocumentResponse(ORMBaseSchema):
-    """Insurance document API response model."""
+class TokenResponse(BaseModel):
+    """Auth token response payload."""
 
-    id: UUID
-    customer_id: UUID
-    file_name: str
-    file_url: str
-    uploaded_at: datetime
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
