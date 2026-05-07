@@ -1,0 +1,135 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# =========================
+# Environment Variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+
+# =========================
+# VS Code / JetBrains
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Node / React
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# React build
+frontend/build/
+frontend/.cache/
+
+# =========================
+# Docker
+# =========================
+*.pid
+docker-data/
+postgres_data/
+pgdata/
+
+# =========================
+# Database
+# =========================
+*.sqlite3
+*.db
+
+# =========================
+# MinIO / Chroma / Ollama
+# =========================
+minio-data/
+chroma-data/
+ollama-data/
+
+# =========================
+# Kafka / Redis temp
+# =========================
+tmp/
+data/
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# Testing / Coverage
+# =========================
+coverage.xml
+.cache/
+
+# =========================
+# Secrets / Keys
+# =========================
+*.pem
+*.key
+*.crt
+secrets/
+credentials.json
+
+# =========================
+# Frontend env
+# =========================
+frontend/.env
+
+# =========================
+# Backend env
+# =========================
+backend/.env
+
+# =========================
+# AI Agent env
+# =========================
+ai-agents/.env
+
+# =========================
+# RAG service env
+# =========================
+rag-service/.env
+
+# =========================
+# Slack bot env
+# =========================
+slack-bot/.env

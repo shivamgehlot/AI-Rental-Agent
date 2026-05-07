@@ -1,0 +1,10 @@
+langchain==0.2.5
+langchain-community==0.2.5
+chromadb==0.5.3
+pypdf==4.2.0
+minio==7.2.7
+ollama==0.2.1
+fastapi==0.111.0
+uvicorn==0.30.0
+python-multipart==0.0.9
+pydantic-settings==2.2.1
